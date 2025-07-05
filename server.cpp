@@ -16,6 +16,7 @@ volatile bool running = true;
 void signal_handler(int sig) {
     std::cout << "\nReceived signal " << sig << ". Shutting down server..." << std::endl;
     running = false;
+    exit(0); // Принудительное завершение
 }
 
 void handle_client(int client_sock) {
@@ -31,6 +32,8 @@ void handle_client(int client_sock) {
         uint32_t width;
         uint32_t height;
         uint32_t dataSize;
+        uint32_t clientScreenWidth;  // Разрешение экрана клиента
+        uint32_t clientScreenHeight; // Разрешение экрана клиента
     };
 #pragma pack(pop)
 
@@ -50,6 +53,8 @@ void handle_client(int client_sock) {
         header.width = ntohl(header.width);
         header.height = ntohl(header.height);
         header.dataSize = ntohl(header.dataSize);
+        header.clientScreenWidth = ntohl(header.clientScreenWidth);
+        header.clientScreenHeight = ntohl(header.clientScreenHeight);
 
         if ((header.magic != 0x12345678 && header.magic != 0x87654321) ||
             header.width > 16384 ||
@@ -85,6 +90,8 @@ void handle_client(int client_sock) {
                     netHeader.width = htonl(header.width);
                     netHeader.height = htonl(header.height);
                     netHeader.dataSize = htonl(header.dataSize);
+                    netHeader.clientScreenWidth = htonl(header.clientScreenWidth);
+                    netHeader.clientScreenHeight = htonl(header.clientScreenHeight);
 
                     ssize_t sent = send(other_sock, &netHeader, sizeof(netHeader), 0);
                     if (sent != sizeof(netHeader)) {
