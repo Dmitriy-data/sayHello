@@ -12,6 +12,8 @@
 std::vector<int> clients;  // Используем int для дескрипторов сокетов в Linux
 std::mutex clients_mutex;
 volatile bool running = true;
+volatile int spectatorWidth = 1920;   // Разрешение spectator по умолчанию
+volatile int spectatorHeight = 1080;  // Разрешение spectator по умолчанию
 
 void signal_handler(int sig) {
     std::cout << "\nReceived signal " << sig << ". Shutting down server..." << std::endl;
@@ -20,6 +22,82 @@ void signal_handler(int sig) {
 }
 
 void handle_client(int client_sock) {
+    // Сначала определяем тип клиента
+    char clientType[12];
+    int bytes = recv(client_sock, clientType, 12, MSG_WAITALL);
+    if (bytes <= 0) {
+        std::cout << "Client " << client_sock << " disconnected during handshake" << std::endl;
+        close(client_sock);
+        return;
+    }
+    
+    // Проверяем маркер spectator
+    uint32_t marker, width, height;
+    memcpy(&marker, clientType, 4);
+    memcpy(&width, clientType + 4, 4);
+    memcpy(&height, clientType + 8, 4);
+    marker = ntohl(marker);
+    width = ntohl(width);
+    height = ntohl(height);
+    
+    // Если это маркер spectator
+    if (marker == 0x53504543) { // "SPEC"
+        spectatorWidth = width;
+        spectatorHeight = height;
+        std::cout << "Spectator connected with resolution: " << width << "x" << height << std::endl;
+        
+        // Отправляем информацию о разрешении spectator всем клиентам
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            for (int other_sock : clients) {
+                uint32_t netWidth = htonl(spectatorWidth);
+                uint32_t netHeight = htonl(spectatorHeight);
+                send(other_sock, &netWidth, 4, 0);
+                send(other_sock, &netHeight, 4, 0);
+            }
+        }
+        
+        // Добавляем spectator в список клиентов
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            clients.push_back(client_sock);
+            std::cout << "Spectator added. Total clients: " << clients.size() << std::endl;
+        }
+        
+        // Обрабатываем входящие кадры от spectator (если будут)
+        handle_spectator(client_sock);
+    } else {
+        // Это обычный клиент, отправляем ему информацию о разрешении spectator
+        uint32_t netWidth = htonl(spectatorWidth);
+        uint32_t netHeight = htonl(spectatorHeight);
+        send(client_sock, &netWidth, 4, 0);
+        send(client_sock, &netHeight, 4, 0);
+        
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            clients.push_back(client_sock);
+            std::cout << "New client connected. Total clients: " << clients.size() << std::endl;
+        }
+        
+        // Обрабатываем входящие кадры от клиента
+        handle_screen_client(client_sock);
+    }
+}
+
+void handle_spectator(int spectator_sock) {
+    // Spectator только получает данные, не отправляет кадры
+    char buffer[1024];
+    while (true) {
+        int bytes = recv(spectator_sock, buffer, sizeof(buffer), 0);
+        if (bytes <= 0) {
+            std::cout << "Spectator disconnected" << std::endl;
+            break;
+        }
+        // Spectator может отправлять команды или ping/pong
+    }
+}
+
+void handle_screen_client(int client_sock) {
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
         clients.push_back(client_sock);
