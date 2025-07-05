@@ -15,7 +15,7 @@ volatile int spectatorWidth = 1920;   // Разрешение spectator по у�
 volatile int spectatorHeight = 1080;  // Разрешение spectator по умолчанию
 
 // Глобальные переменные для клиента и spectator
-int client_sock = -1;
+int global_client_sock = -1;
 int spectator_sock = -1;
 std::mutex clients_mutex;
 
@@ -146,7 +146,7 @@ void handle_screen_client(int client_sock) {
 cleanup:
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
-        client_sock = -1;
+        global_client_sock = -1;
     }
     close(client_sock);
     std::cout << "Client " << client_sock << " removed." << std::endl;
@@ -171,6 +171,9 @@ void handle_client(int client_sock) {
     width = ntohl(width);
     height = ntohl(height);
     
+    std::cout << "Received handshake - marker: 0x" << std::hex << marker << std::dec 
+              << ", width: " << width << ", height: " << height << std::endl;
+    
     // Если это маркер spectator
     if (marker == 0x53504543) { // "SPEC"
         {
@@ -190,19 +193,21 @@ void handle_client(int client_sock) {
         handle_spectator(client_sock);
     } else {
         // Это обычный клиент
+        std::cout << "Regular client connecting..." << std::endl;
         {
             std::lock_guard<std::mutex> lock(clients_mutex);
-            if (client_sock != -1) {
+            if (global_client_sock != -1) {
                 std::cout << "Client already connected, rejecting new client" << std::endl;
                 close(client_sock);
                 return;
             }
-            client_sock = client_sock;
+            global_client_sock = client_sock;
         }
         
         // Отправляем информацию о разрешении spectator
         uint32_t netWidth = htonl(spectatorWidth);
         uint32_t netHeight = htonl(spectatorHeight);
+        std::cout << "Sending spectator resolution to client: " << spectatorWidth << "x" << spectatorHeight << std::endl;
         send(client_sock, &netWidth, 4, 0);
         send(client_sock, &netHeight, 4, 0);
         
@@ -262,8 +267,8 @@ int main() {
     std::cout << "Closing all client connections..." << std::endl;
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
-        if (client_sock != -1) {
-            close(client_sock);
+        if (global_client_sock != -1) {
+            close(global_client_sock);
         }
         if (spectator_sock != -1) {
             close(spectator_sock);
